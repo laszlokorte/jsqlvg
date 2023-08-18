@@ -196,6 +196,36 @@ function render(db) {
 	ctx.stroke()
 
 	ctx.restore()
+
+	// var range = document.createRange();
+	// range.selectNodeContents(svgEl);
+	// range.deleteContents();
+
+	// // for(let text of texts) {
+	// // 	const t = document.createElementNS("http://www.w3.org/2000/svg",'text');
+	// // 	t.appendChild(document.createTextNode(text.content))
+	// // 	t.setAttribute('x', text.center_x)
+	// // 	t.setAttribute('y', text.center_y)
+	// // 	t.setAttribute('font-family', 'serif')
+	// // 	t.setAttribute('font-size', `${text.font_size_relative}px`)
+	// // 	t.setAttribute('text-anchor', 'middle')
+	// // 	t.setAttribute('dominant-baseline', 'middle')
+	// // 	svgEl.appendChild(t)
+	// // }
+
+	// for(let anchor of anchors) {
+	// 	const t = document.createElementNS("http://www.w3.org/2000/svg",'rect');
+	// 	t.setAttribute('x', anchor.min_x)
+	// 	t.setAttribute('y', anchor.min_y)
+	// 	t.setAttribute('rx', 5*viewport.scale)
+	// 	t.setAttribute('ry', 5*viewport.scale)
+	// 	t.setAttribute('width', anchor.width)
+	// 	t.setAttribute('height', anchor.height)
+	// 	t.setAttribute('fill', 'none')
+	// 	t.setAttribute('pointer-events', 'all')
+	// 	t.setAttribute('cursor', 'pointer')
+	// 	svgEl.appendChild(t)
+	// }
 }
 
 function loadScript(path) {
@@ -221,7 +251,6 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 
 	function doInsert(x,y,size,color) {
 		createNode(db, x,y, 1)
-		requestReload()
 	}
 
 
@@ -233,17 +262,24 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 	}
 
 	function doReload() {
-		reloading = null
 		render(db)
+		reloading = null
 	}
 
-	requestReload();
 
 	window.addEventListener('resize', requestReload);
 
 	;(() => {
 		let dragging = null
 		let dragged = 0
+
+		function springStep() {
+			springCamera(db)
+			doReload()
+			requestAnimationFrame(springStep)
+		}
+
+		springStep()
 
 		function startDragging(evt) {
 			dragged = 0
@@ -256,7 +292,6 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 
 			if(evt.button==0) {
 				startSelect(db, xy.x, xy.y)
-				requestReload()
 			}
 
 			moveDragging(evt)
@@ -266,7 +301,8 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 		function stopDragging(evt) {
 			if(dragging&&dragging.button==0) {
 				stopSelect(db)
-				requestReload()
+			} else if(dragging && dragging.button==1 && dragged++ > 2) {
+				stopPan(db)
 			}
 			dragging = null
 		}
@@ -280,14 +316,12 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 				doPan(db, x-dragging.prev.x, y-dragging.prev.y)
 
 				dragging.prev = {x,y}
-				requestReload()
 			} else if(dragging.button==0 && dragged++ > 2) {
 				const {x,y} = eventXY(evt)
 
 				updateSelect(db, x, y)
 
 				dragging.prev = {x,y}
-				requestReload()
 			}
 		}
 
@@ -301,9 +335,11 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 			if(!hit) {
 				clearSelect(db)
 				doInsert(x, y, 5, "#4af")
+				requestReload(db)
 			} else {
 				clearSelect(db)
 				addSelect(db, hit.element_id)
+				requestReload(db)
 			}
 		}
 
@@ -325,11 +361,9 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 		const menuItems = [
 			{label: 'Clear', action: () => {
 				clearElements(db)
-				requestReload()
 			}},
 			{label: 'Delete Selected', action: () => {
 				deleteSelected(db)
-				requestReload()
 			}}
 		]
 

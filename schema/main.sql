@@ -15,6 +15,31 @@ CREATE TABLE ui_camera (
 	zoom NUMBER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE ui_camera_target (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	ui_camera_id INTEGER NOT NULL,
+	center_x NUMBER NOT NULL,
+	center_y NUMBER NOT NULL,
+	zoom NUMBER NOT NULL,
+
+	CONSTRAINT unq_ui_camera_id UNIQUE (ui_camera_id),
+	CONSTRAINT fk_camera_id FOREIGN KEY (ui_camera_id) REFERENCES ui_camera(id)
+);
+
+CREATE TABLE ui_camera_physics (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	ui_camera_id INTEGER NOT NULL,
+	velocity_x NUMBER NOT NULL DEFAULT 0,
+	velocity_y NUMBER NOT NULL DEFAULT 0,
+	velocity_zoom NUMBER NOT NULL DEFAULT 0,
+	acceleration_x NUMBER NOT NULL DEFAULT 0,
+	acceleration_y NUMBER NOT NULL DEFAULT 0,
+	acceleration_zoom NUMBER NOT NULL DEFAULT 0,
+
+	CONSTRAINT unq_ui_camera_id UNIQUE (ui_camera_id),
+	CONSTRAINT fk_camera_id FOREIGN KEY (ui_camera_id) REFERENCES ui_camera(id)
+);
+
 CREATE TABLE ui_viewport (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	ui_camera_id INTEGER NOT NULL,

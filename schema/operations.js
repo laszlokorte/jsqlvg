@@ -129,19 +129,35 @@ function repair(db) {
 }
 
 function doZoom(db, factor, center, min = 0.25, max= 4) {
-	db.exec(`UPDATE ui_camera 
-		SET zoom=MIN(MAX(:min, zoom*:factor), :max), 
-		center_x=center_x+(:x/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)), 
-		center_y=center_y+(:y/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)) 
-		WHERE id = 1`,{':factor':factor, ':x': center.x, ':y': center.y, ':min':min, ':max':max})
+	db.exec(`
+		INSERT OR REPLACE INTO ui_camera_target(ui_camera_id, center_x, center_y, zoom)
+		SELECT 
+		id, 
+		center_x+(:x/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)), 
+		center_y+(:y/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)), 
+		MIN(MAX(:min, zoom*:factor), :max)
+		FROM ui_camera c
+		WHERE c.id = 1`,
+	{':factor':factor, ':x': center.x, ':y': center.y, ':min':min, ':max':max})
 }
 
 function doPan(db, dx, dy) {
-	db.exec(`UPDATE ui_camera 
-		SET
-		center_x=center_x-(:dx/zoom), 
-		center_y=center_y-(:dy/zoom)
-		WHERE id = 1`,{':dx':dx,':dy':dy})
+	db.exec(`
+		INSERT OR REPLACE INTO ui_camera_target(ui_camera_id, center_x, center_y, zoom)
+		SELECT 
+		c.id, 
+		COALESCE(t.center_x, c.center_x)-(:dx/COALESCE(t.zoom, c.zoom)), 
+		COALESCE(t.center_y, c.center_y)-(:dy/COALESCE(t.zoom, c.zoom)), 
+		COALESCE(t.zoom, c.zoom)
+		FROM ui_camera c
+		LEFT JOIN ui_camera_target t
+		ON t.ui_camera_id = c.id
+		WHERE c.id = 1`,
+	{':dx':dx,':dy':dy})
+}
+
+function stopPan(db) {
+	db.exec(`DELETE FROM ui_camera_target`)
 }
 
 function clearSelect(db) {
@@ -198,6 +214,19 @@ function addSelect(db,element_id) {
 	db.exec(`INSERT OR IGNORE INTO ui_selection (ui_viewport_id, element_id) VALUES(1,:id)`,{':id':element_id})
 }
 
+function springCamera(db) {
+	db.exec(`REPLACE INTO ui_camera (id, center_x, center_y, zoom)
+		SELECT 
+		c.id, 
+		c.center_x * 0.2 + t.center_x * 0.8, 
+		c.center_y * 0.2 + t.center_y * 0.8, 
+		c.zoom * 0.2 + t.zoom * 0.8
+		FROM ui_camera c
+		INNER JOIN ui_camera_target t
+		ON t.ui_camera_id = c.id
+	`)
+}
+
 function loadExamples(db) {
 
 	shapeId1 = createShape(db);
@@ -232,11 +261,13 @@ function loadExamples(db) {
 		:x,
 		:y,
 		:zoom) RETURNING ID`);
-	const camId1 = cmStmt.getAsObject({':x':0,':y':0,':zoom':1}).id
+	const camId = cmStmt.getAsObject({':x':0,':y':0,':zoom':1}).id
 	cmStmt.free()
 
+	db.exec(`INSERT INTO ui_camera_physics(ui_camera_id) VALUES(:camId)`,{':camId':camId})
+
 	const vpStmt = db.prepare(`INSERT INTO ui_viewport(width,height,ui_camera_id) VALUES (:w,:h,:camera_id)  RETURNING ID`);
-	const vpId = vpStmt.getAsObject({':camera_id': camId1, ':w': 1600, ':h': 1200}).id
+	const vpId = vpStmt.getAsObject({':camera_id': camId, ':w': 1600, ':h': 1200}).id
 	vpStmt.free()
 
 	repair(db)
