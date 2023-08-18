@@ -128,7 +128,7 @@ function repair(db) {
 	db.exec(`DELETE FROM edge WHERE element_id IN (SELECT element_id FROM view_error_edge_node_conflict)`);
 }
 
-function doZoom(db, factor, center, min = 0.1, max= 10) {
+function doZoom(db, factor, center, min = 0.25, max= 4) {
 	db.exec(`UPDATE ui_camera 
 		SET zoom=MIN(MAX(:min, zoom*:factor), :max), 
 		center_x=center_x+(:x/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)), 
@@ -144,9 +144,12 @@ function doPan(db, dx, dy) {
 		WHERE id = 1`,{':dx':dx,':dy':dy})
 }
 
+function clearSelect(db) {
+	db.exec(`DELETE FROM ui_selection`)
+}
+
 function startSelect(db,x,y) {
 	db.exec(`DELETE FROM ui_selection_box`)
-	db.exec(`DELETE FROM ui_selection`)
 	db.exec(`INSERT INTO ui_selection_box(ui_viewport_id, start_x, start_y, end_x, end_y) 
 		VALUES(:vp, :x, :y,:x,:y)`,
 		{':vp':1, ':x':x,':y':y})
@@ -168,6 +171,31 @@ function applySelect(db,x,y) {
 	db.exec(`INSERT OR IGNORE INTO ui_selection (ui_viewport_id, element_id) 
 		SELECT ui_viewport_id, element_id FROM view_elements_in_select_box
 		`)
+}
+
+function hitTest(db, x,y) {
+	const stmt = db.prepare(`SELECT 
+		e.element_id AS element_id
+		FROM view_bounded_element e
+		LEFT JOIN ui_selection s 
+		ON s.element_id = e.element_id
+		WHERE (e.min_x <= :x AND e.max_x >= :x) AND
+		      (e.min_y <= :y AND e.max_y >= :y)
+		ORDER BY s.id IS NULL DESC
+	`);
+	stmt.bind({':x':x,':y':y})
+	if(stmt.step()) {
+		const r = stmt.getAsObject()
+		stmt.free()
+		return r
+	} else {
+		stmt.free()
+		return null
+	}
+}
+
+function addSelect(db,element_id) {
+	db.exec(`INSERT OR IGNORE INTO ui_selection (ui_viewport_id, element_id) VALUES(1,:id)`,{':id':element_id})
 }
 
 function loadExamples(db) {
@@ -197,20 +225,18 @@ function loadExamples(db) {
 
 	t3 = createText(db, e2[1], ``);
 
-	console.log(db)
 	db.exec(`INSERT INTO element DEFAULT VALUES RETURNING ID`)[0].values[0][0];
 	e3 = createEdge(db, n2[0], anchor2, n3[0], anchor2, n2[1]);
 
-	camId1 = db.exec(`INSERT INTO ui_camera(center_x,center_y,zoom) VALUES (
-		0,
-		0,
-		0.6) RETURNING ID`)[0].values[0][0];
-	camId2 = db.exec(`INSERT INTO ui_camera(center_x,center_y,zoom) VALUES (
-		ROUND(200*RANDOM()/9223372036854775807),
-		ROUND(200*RANDOM()/9223372036854775807),
-		0.6) RETURNING ID`)[0].values[0][0];
+	const cmStmt = db.prepare(`INSERT INTO ui_camera(center_x,center_y,zoom) VALUES (
+		:x,
+		:y,
+		:zoom) RETURNING ID`);
+	const camId1 = cmStmt.getAsObject({':x':0,':y':0,':zoom':1}).id
+	cmStmt.free()
+
 	const vpStmt = db.prepare(`INSERT INTO ui_viewport(width,height,ui_camera_id) VALUES (:w,:h,:camera_id)  RETURNING ID`);
-	const vpId = vpStmt.getAsObject({':camera_id': camId1, ':w': 500, ':h': 300}).id
+	const vpId = vpStmt.getAsObject({':camera_id': camId1, ':w': 1600, ':h': 1200}).id
 	vpStmt.free()
 
 	repair(db)

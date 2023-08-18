@@ -82,7 +82,6 @@ function fetchAll(db, sql) {
 
 function render(db) {
 	const selected = fetchAll(db, "SELECT element_id FROM ui_selection  WHERE ui_viewport_id=1").map((e)=>e.element_id)
-	console.log(selected)
 	const points = fetchAll(db, "SELECT id, x, y, size, color FROM test")
 	const nodes = fetchAll(db, "SELECT * FROM view_bounded_node_in_viewport WHERE viewport_id=1 AND in_viewport");
 	const anchors = fetchAll(db, "SELECT * FROM view_bounded_anchor_in_viewport WHERE viewport_id=1 AND in_viewport");
@@ -118,7 +117,7 @@ function render(db) {
 
 	ctx.strokeStyle = 'blue'
 	ctx.beginPath()
-	ctx.lineWidth = 0.3
+	ctx.lineWidth = 0.9
 	for(let edge of edges) {
 		//ctx.rect(edge.min_x, edge.min_y, edge.max_x-edge.min_x, edge.max_y-edge.min_y)
 
@@ -152,7 +151,7 @@ function render(db) {
 	ctx.stroke()
 
 	ctx.strokeStyle = '#07da'
-	ctx.lineWidth=3
+	ctx.lineWidth=Math.max(2, 2*viewport.scale)
 	ctx.lineJoin="round"
 	ctx.lineCap="round"
 
@@ -163,6 +162,7 @@ function render(db) {
 		}
 		ctx.rect(node.min_x, node.min_y, node.width, node.height)
 	}
+	ctx.fill()
 	for(let edge of edges) {
 		if(!selected.includes(edge.element_id)) {
 			continue
@@ -297,7 +297,14 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 			}
 			const {x,y} = eventXYWorld(evt)
 
-			doInsert(x, y, 5, "#4af")
+			const hit = hitTest(db, x,y);
+			if(!hit) {
+				clearSelect(db)
+				doInsert(x, y, 5, "#4af")
+			} else {
+				clearSelect(db)
+				addSelect(db, hit.element_id)
+			}
 		}
 
 		function zoom(evt) {
