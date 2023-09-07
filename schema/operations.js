@@ -128,37 +128,38 @@ function repair(db) {
 	db.exec(`DELETE FROM edge WHERE element_id IN (SELECT element_id FROM view_error_edge_node_conflict)`);
 }
 
-function doZoom(db, factor, center, min = 0.25, max= 4) {
+function doZoom(db, factor, center) {
 	db.exec(`
-		INSERT OR REPLACE INTO ui_camera_target(ui_camera_id, center_x, center_y, zoom)
+		INSERT OR REPLACE INTO ui_camera(id, center_x, center_y, zoom, margin)
 		SELECT 
-		id, 
-		center_x+(:x/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)), 
-		center_y+(:y/zoom)*(1-1/(MIN(MAX(:min, zoom*:factor), :max)/zoom)), 
-		MIN(MAX(:min, zoom*:factor), :max)
+		c.id, 
+		b.center_x +(MAX(b.min_x, MIN(b.max_x, b.center_x + :x/b.zoom))-b.center_x)*(1-1/(MAX(b.min_zoom, MIN(b.max_zoom, b.zoom*:factor))/b.zoom)), 
+		b.center_y +(MAX(b.min_y, MIN(b.max_y, b.center_y + :y/b.zoom))-b.center_y)*(1-1/(MAX(b.min_zoom, MIN(b.max_zoom, b.zoom*:factor))/b.zoom)), 
+		MAX(b.min_zoom, MIN(b.max_zoom, b.zoom*:factor)),
+		b.margin
 		FROM ui_camera c
+		INNER JOIN view_camera_hard_constrained b
+		on b.id = c.id
 		WHERE c.id = 1`,
-	{':factor':factor, ':x': center.x, ':y': center.y, ':min':min, ':max':max})
+	{':factor':factor, ':x': center.x, ':y': center.y})
 }
 
 function doPan(db, dx, dy) {
 	db.exec(`
-		INSERT OR REPLACE INTO ui_camera_target(ui_camera_id, center_x, center_y, zoom)
+		INSERT OR REPLACE INTO ui_camera(id, center_x, center_y, zoom, margin)
 		SELECT 
 		c.id, 
-		COALESCE(t.center_x, c.center_x)-(:dx/COALESCE(t.zoom, c.zoom)), 
-		COALESCE(t.center_y, c.center_y)-(:dy/COALESCE(t.zoom, c.zoom)), 
-		COALESCE(t.zoom, c.zoom)
+		MAX(b.min_x, MIN(b.max_x, b.center_x-(:dx/b.zoom))),
+		MAX(b.min_y, MIN(b.max_y, b.center_y-(:dy/b.zoom))),
+		c.zoom,
+		c.margin
 		FROM ui_camera c
-		LEFT JOIN ui_camera_target t
-		ON t.ui_camera_id = c.id
+		INNER JOIN view_camera_hard_constrained b
+		on b.id = c.id
 		WHERE c.id = 1`,
 	{':dx':dx,':dy':dy})
 }
 
-function stopPan(db) {
-	db.exec(`DELETE FROM ui_camera_target`)
-}
 
 function clearSelect(db) {
 	db.exec(`DELETE FROM ui_selection`)
@@ -214,18 +215,7 @@ function addSelect(db,element_id) {
 	db.exec(`INSERT OR IGNORE INTO ui_selection (ui_viewport_id, element_id) VALUES(1,:id)`,{':id':element_id})
 }
 
-function springCamera(db) {
-	db.exec(`REPLACE INTO ui_camera (id, center_x, center_y, zoom)
-		SELECT 
-		c.id, 
-		c.center_x * 0.2 + t.center_x * 0.8, 
-		c.center_y * 0.2 + t.center_y * 0.8, 
-		c.zoom * 0.2 + t.zoom * 0.8
-		FROM ui_camera c
-		INNER JOIN ui_camera_target t
-		ON t.ui_camera_id = c.id
-	`)
-}
+
 
 function loadExamples(db) {
 
@@ -257,14 +247,14 @@ function loadExamples(db) {
 	db.exec(`INSERT INTO element DEFAULT VALUES RETURNING ID`)[0].values[0][0];
 	e3 = createEdge(db, n2[0], anchor2, n3[0], anchor2, n2[1]);
 
-	const cmStmt = db.prepare(`INSERT INTO ui_camera(center_x,center_y,zoom) VALUES (
+	const cmStmt = db.prepare(`INSERT INTO ui_camera(center_x,center_y,zoom,margin) VALUES (
 		:x,
 		:y,
-		:zoom) RETURNING ID`);
-	const camId = cmStmt.getAsObject({':x':0,':y':0,':zoom':1}).id
+		:zoom,
+		:margin) RETURNING ID`);
+	const camId = cmStmt.getAsObject({':x':0,':y':0,':zoom':1,':margin':100}).id
 	cmStmt.free()
 
-	db.exec(`INSERT INTO ui_camera_physics(ui_camera_id) VALUES(:camId)`,{':camId':camId})
 
 	const vpStmt = db.prepare(`INSERT INTO ui_viewport(width,height,ui_camera_id) VALUES (:w,:h,:camera_id)  RETURNING ID`);
 	const vpId = vpStmt.getAsObject({':camera_id': camId, ':w': 1600, ':h': 1200}).id

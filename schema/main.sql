@@ -12,32 +12,8 @@ CREATE TABLE ui_camera (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	center_x NUMBER NOT NULL DEFAULT 0,
 	center_y NUMBER NOT NULL DEFAULT 0,
-	zoom NUMBER NOT NULL DEFAULT 1
-);
-
-CREATE TABLE ui_camera_target (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	ui_camera_id INTEGER NOT NULL,
-	center_x NUMBER NOT NULL,
-	center_y NUMBER NOT NULL,
-	zoom NUMBER NOT NULL,
-
-	CONSTRAINT unq_ui_camera_id UNIQUE (ui_camera_id),
-	CONSTRAINT fk_camera_id FOREIGN KEY (ui_camera_id) REFERENCES ui_camera(id)
-);
-
-CREATE TABLE ui_camera_physics (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	ui_camera_id INTEGER NOT NULL,
-	velocity_x NUMBER NOT NULL DEFAULT 0,
-	velocity_y NUMBER NOT NULL DEFAULT 0,
-	velocity_zoom NUMBER NOT NULL DEFAULT 0,
-	acceleration_x NUMBER NOT NULL DEFAULT 0,
-	acceleration_y NUMBER NOT NULL DEFAULT 0,
-	acceleration_zoom NUMBER NOT NULL DEFAULT 0,
-
-	CONSTRAINT unq_ui_camera_id UNIQUE (ui_camera_id),
-	CONSTRAINT fk_camera_id FOREIGN KEY (ui_camera_id) REFERENCES ui_camera(id)
+	zoom NUMBER NOT NULL DEFAULT 1,
+	margin NUMBER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE ui_viewport (
@@ -236,6 +212,7 @@ ON p.node_id = s.node_id;
 CREATE VIEW view_positioned_anchor AS 
 SELECT 
 b.node_id AS node_id,
+b.element_id AS element_id,
 a.id AS anchor_id,
 (b.max_x * a.relative_x) + (b.min_x * (1-a.relative_x)) + a.offset_x AS center_x,
 (b.max_y * a.relative_y) + (b.min_y * (1-a.relative_y)) + a.offset_y AS center_y
@@ -249,6 +226,7 @@ CREATE VIEW view_bounded_anchor AS
 SELECT 
 p.anchor_id,
 p.node_id,
+p.element_id AS element_id,
 a.width AS width,
 a.height AS height,
 p.center_x - a.width/2 as min_x,
@@ -380,7 +358,7 @@ n.height*c.zoom AS height,
 (n.max_y - c.center_y)*c.zoom AS max_y
 FROM 
 view_bounded_node n, 
-ui_camera c; 
+view_camera_hard_constrained c; 
 
 
 CREATE VIEW view_bounded_anchor_from_camera AS
@@ -395,7 +373,7 @@ a.height*c.zoom AS height,
 (a.min_y - c.center_y)*c.zoom AS min_y,
 (a.max_y - c.center_y)*c.zoom AS max_y
 FROM view_bounded_anchor a, 
-ui_camera c; 
+view_camera_hard_constrained c; 
 
 
 CREATE VIEW view_bounded_edge_from_camera AS
@@ -418,7 +396,7 @@ e.element_id AS element_id,
 (e.min_y - c.center_y)*c.zoom AS min_y,
 (e.max_y - c.center_y)*c.zoom AS max_y
 FROM view_bounded_edge e, 
-ui_camera c; 
+view_camera_hard_constrained c; 
 
 
 CREATE VIEW view_bounded_text_from_camera AS
@@ -436,7 +414,7 @@ t.content AS content,
 12 * c.zoom AS font_size_absolute,
 12 * c.zoom AS font_size_relative
 FROM view_bounded_text t, 
-ui_camera c; 
+view_camera_hard_constrained c; 
 
 CREATE VIEW view_bounded_ui_viewport AS
 SELECT 
@@ -456,7 +434,7 @@ v.width/c.zoom AS world_width,
 v.height/c.zoom AS world_height,
 c.zoom AS scale
 FROM ui_viewport v
-INNER JOIN ui_camera c
+INNER JOIN view_camera_hard_constrained c
 ON c.id = v.ui_camera_id;
 
 CREATE VIEW view_bounded_node_in_viewport AS
@@ -510,7 +488,7 @@ MAX(start_y, end_y)/c.zoom+c.center_y AS max_y
 FROM ui_selection_box
 INNER JOIN ui_viewport v
 ON v.id = ui_selection_box.ui_viewport_id
-INNER JOIN ui_camera c
+INNER JOIN view_camera_hard_constrained c
 ON c.id = v.ui_camera_id;
 
 CREATE VIEW view_bounded_element AS
@@ -526,4 +504,91 @@ s.ui_viewport_id AS ui_viewport_id
 FROM view_bounded_element e
 INNER JOIN view_ui_selection_box s
 WHERE (e.min_x <= s.max_x AND e.max_x >= s.min_x) AND
-      (e.min_y <= s.max_y AND e.max_y >= s.min_y)
+      (e.min_y <= s.max_y AND e.max_y >= s.min_y);
+
+CREATE VIEW view_all_element_bounds AS
+SELECT 
+	element_id,
+	min_x, 
+	max_x, 
+	min_y, 
+	max_y
+FROM 
+view_bounded_node
+UNION ALL
+SELECT 
+	element_id,
+	min_x, 
+	max_x, 
+	min_y, 
+	max_y
+FROM 
+view_bounded_anchor
+UNION ALL
+SELECT 
+	element_id,
+	min_x, 
+	max_x, 
+	min_y, 
+	max_y
+FROM 
+view_bounded_edge
+UNION ALL
+SELECT 
+	element_id,
+	min_x, 
+	max_x, 
+	min_y, 
+	max_y
+FROM 
+view_bounded_text
+UNION ALL
+SELECT 
+	NULL AS element_id,
+	0 as min_x, 
+	0 as max_x, 
+	0 as min_y, 
+	0 as max_y;
+
+
+
+CREATE VIEW view_tight_bounding_box AS
+SELECT
+MIN(b.min_x) AS min_x,
+MAX(b.max_x) AS max_x,
+MIN(b.min_y) AS min_y,
+MAX(b.max_y) AS max_y
+FROM view_all_element_bounds b
+GROUP BY b.element_id IS NOT NULL
+ORDER BY b.element_id IS NULL
+LIMIT 1; 
+
+
+CREATE VIEW view_all_element_bounds_from_camera AS
+SELECT
+c.id AS camera_id,
+(b.min_x - c.center_x - c.margin)*c.zoom AS min_x,
+(b.max_x - c.center_x + c.margin)*c.zoom AS max_x,
+(b.max_x - b.min_x + 2*c.margin)*c.zoom AS width,
+(b.min_y - c.center_y - c.margin)*c.zoom AS min_y,
+(b.max_y - c.center_y + c.margin)*c.zoom AS max_y,
+(b.max_y - b.min_y + 2*c.margin)*c.zoom AS height
+FROM view_tight_bounding_box b, 
+view_camera_hard_constrained c
+GROUP BY c.id; 
+
+CREATE VIEW view_camera_hard_constrained AS
+SELECT
+c.id AS id,
+MAX(b.min_x - c.margin, MIN(b.max_x + c.margin, c.center_x)) AS center_x,
+MAX(b.min_y - c.margin, MIN(b.max_y + c.margin, c.center_y)) AS center_y,
+MAX(0.25, MIN(4, c.zoom)) AS zoom,
+0.25 AS min_zoom,
+4 AS max_zoom,
+b.min_x - c.margin AS min_x,
+b.max_x + c.margin AS max_x,
+b.min_y - c.margin AS min_y,
+b.max_y + c.margin AS max_y,
+c.margin AS margin
+FROM ui_camera c,
+view_tight_bounding_box b;

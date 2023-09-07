@@ -89,6 +89,7 @@ function render(db) {
 	const edges = fetchAll(db, "SELECT * FROM view_bounded_edge_in_viewport WHERE viewport_id=1 AND in_viewport");
 	const selectBoxs = fetchAll(db, "SELECT * FROM ui_selection_box WHERE ui_viewport_id=1");
 	const viewport = fetchOne(db, "SELECT * FROM view_bounded_ui_viewport WHERE id=1");
+	const bounds = fetchOne(db, "SELECT * FROM view_all_element_bounds_from_camera WHERE camera_id=1");
 	svgEl.setAttribute('viewBox', `${viewport.min_x} ${viewport.min_y} ${viewport.width} ${viewport.height}`);
 	svgElWorld.setAttribute('viewBox', `${viewport.world_min_x} ${viewport.world_min_y} ${viewport.world_width} ${viewport.world_height}`);
 	const scaleFactor = Math.max(canvasEl.width/viewport.width, canvasEl.height/viewport.height)
@@ -98,11 +99,24 @@ function render(db) {
 	ctx.translate(canvasEl.width/2, canvasEl.height/2)
 	ctx.scale(scaleFactor, scaleFactor)
 
+
+
 	ctx.fillStyle = '#feea'
 	ctx.strokeStyle = '#faa'
 	ctx.lineWidth=1
 	ctx.fillRect(viewport.min_x, viewport.min_y, viewport.width, viewport.height)
 	ctx.strokeRect(viewport.min_x, viewport.min_y, viewport.width, viewport.height)
+
+	ctx.beginPath()
+	ctx.fillStyle = 'white'
+	ctx.strokeStyle = 'gray'
+	ctx.setLineDash([4, 4]);
+
+	ctx.rect(bounds.min_x, bounds.min_y, bounds.width, bounds.height)
+	ctx.fill()
+	ctx.stroke()
+	ctx.setLineDash([]);
+
 
 	ctx.fillStyle = 'gray'
 	ctx.strokeStyle = 'black'
@@ -274,7 +288,7 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 		let dragged = 0
 
 		function springStep() {
-			springCamera(db)
+			//springCamera(db)
 			doReload()
 			requestAnimationFrame(springStep)
 		}
@@ -302,7 +316,7 @@ Promise.all([initSqlJs({}), loadText('schema/main.sql'), loadScript('schema/oper
 			if(dragging&&dragging.button==0) {
 				stopSelect(db)
 			} else if(dragging && dragging.button==1 && dragged++ > 2) {
-				stopPan(db)
+				//stopPan(db)
 			}
 			dragging = null
 		}
